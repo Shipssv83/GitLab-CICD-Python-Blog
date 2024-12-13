@@ -6,8 +6,7 @@ stages:
 
 variables:
   DOCKER_TLS_CERTDIR: "/certs"
-#  IMAGE_NAME: "harbor.one-it.uk/flask_blog/flask_blog" # Specify the image name in Harbor registry
-
+  
 build:
   stage: build
   image: docker:latest
