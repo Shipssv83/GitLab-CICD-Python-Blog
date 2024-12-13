@@ -1,0 +1,74 @@
+stages:
+  - build
+  - sonarqube-check
+  - sonarqube-vulnerability-report
+  - deploy-prod
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+#  IMAGE_NAME: "harbor.one-it.uk/flask_blog/flask_blog" # Specify the image name in Harbor registry
+
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - cd build # Navigate to the build folder (e.g., flask_blog/build/)
+    - ls -la # List files in the current directory for debugging
+    - pwd    # Ensure the Runner is in the correct directory
+    - docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $HARBOR_REGISTRY # Authenticate with Harbor
+    - docker build -t $IMAGE_NAME:latest . # Build the Docker image
+    - docker push $IMAGE_NAME:latest # Push the Docker image to Harbor
+
+sonarqube-check:
+  stage: sonarqube-check
+  image: sonarsource/sonar-scanner-cli:11
+  script:
+    - sonar-scanner -Dsonar.host.url="${SONAR_HOST_URL}" -Dsonar.login="${SONAR_TOKEN}" # Run SonarQube scanner
+  allow_failure: true # Do not fail the pipeline if this step fails
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event' # Run for merge request events
+    - if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' # Run for main or master branches
+
+sonarqube-vulnerability-report:
+  stage: sonarqube-vulnerability-report
+  image: curlimages/curl:latest
+  script:
+    - 'curl -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}/api/issues/gitlab_sast_export?projectKey=${SONAR_PROJECT_KEY}&branch=${CI_COMMIT_BRANCH}" -o gl-sast-sonar-report.json' # Fetch the SAST report from SonarQube
+  allow_failure: true # Do not fail the pipeline if this step fails
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event' # Run for merge request events
+    - if: $CI_COMMIT_BRANCH == 'main' || $CI_COMMIT_BRANCH == 'master' # Run for main or master branches
+  artifacts:
+    expire_in: 1 day # Retain the artifacts for 1 day
+    reports:
+      sast: gl-sast-sonar-report.json # Provide the report to GitLab in SAST format
+
+.deploy-template: &deploy-template
+  image: python:alpine
+  variables:
+    ANSIBLE_HOST_KEY_CHECKING: "False" # Disable host key checking for Ansible
+  before_script:
+    - apk update && apk add --no-cache openssh-client zip curl bash # Install necessary tools
+    - python3 -m pip install ansible ansible-core # Install Ansible
+    - ansible-galaxy install -r $CI_PROJECT_DIR/deploy/collections/requirements.yml # Install Ansible dependencies
+    - mkdir -p $CI_PROJECT_DIR/.ssh # Create the SSH directory
+    - chmod 400 $CI_PROJECT_DIR/.ssh # Set appropriate permissions
+    - echo "${SSH_PRIVATE_KEY}" > $CI_PROJECT_DIR/.ssh/SSH_PRIVATE # Add the private key for authentication
+    - chmod 0400 $CI_PROJECT_DIR/.ssh/SSH_PRIVATE # Secure the private key
+    - eval $(ssh-agent -s) # Start the SSH agent
+    - ssh-add $CI_PROJECT_DIR/.ssh/SSH_PRIVATE # Add the key to the SSH agent
+    - zip -r flask_blog.zip deploy/project -qq # Archive the project folder
+    - ls -la $CI_PROJECT_DIR/ # Debug: List files in the project directory
+    - ls -la $CI_PROJECT_DIR/deploy # Debug: List files in the deploy directory project
+
+deploy-prod:
+  <<: *deploy-template
+  stage: deploy-prod
+  environment: main # Set the environment as "main"
+  script:
+    - ansible-playbook -i deploy/inventory.ini --user dev deploy/playbook.yml --private-key "$CI_PROJECT_DIR/.ssh/SSH_PRIVATE" -e "IMAGE_NAME=$IMAGE_NAME" -vv # Run the Ansible playbook
+  when: manual  # Make this step manual to control deployments
+  only:
+    - main  # Run only on the main branch

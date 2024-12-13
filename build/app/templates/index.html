@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>Blog Posts</h2>
+{% for post in posts %}
+<article>
+    <h3>{{ post.title }}</h3>
+    <p>{{ post.content }}</p>
+    <p><small>by {{ post.user.username }}</small></p>
+</article>
+{% else %}
+<p>No posts yet. <a href="{{ url_for('new_post') }}">Write the first post!</a></p>
+{% endfor %}
+{% endblock %}

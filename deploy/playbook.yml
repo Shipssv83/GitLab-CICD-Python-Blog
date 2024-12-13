@@ -1,0 +1,70 @@
+---
+- name: Flask Blog Deploy Server Prod
+  become: true
+  hosts: all
+  vars:
+    PATH: "/opt/flask_blog"
+
+  tasks:
+    # Create the target directory on the remote server
+    - name: Create directory
+      ansible.builtin.file:
+        path: "{{ PATH }}"
+        state: directory
+        mode: "0755"
+        recurse: true
+
+    # Stop and remove existing Docker containers
+    - name: Stop and remove existing Docker containers
+      ansible.builtin.shell:
+        cmd: docker-compose down
+      args:
+        chdir: "{{ PATH }}"
+        warn: false
+      ignore_errors: true
+
+    # Copy deployment files to the remote server
+    - name: Copy files to the remote server
+      ansible.builtin.copy:
+        src: "../flask_blog.zip"
+        dest: "{{ PATH }}"
+        mode: "0755"
+        owner: root
+        group: root
+
+    # Unzip the deployment files
+    - name: Unzip deployment archive
+      ansible.builtin.unarchive:
+        src: "{{ PATH }}/flask_blog.zip"
+        dest: "{{ PATH }}"
+        remote_src: yes
+        mode: "0755"
+        owner: root
+        group: root
+
+    # Remove the deployment archive after extraction
+    - name: Remove deployment archive
+      ansible.builtin.command:
+        cmd: rm -f "{{ PATH }}/flask_blog.zip"
+
+    # Pull the latest Docker image
+    - name: Pull the latest Docker image
+      ansible.builtin.shell:
+        cmd: docker pull $IMAGE_NAME:latest
+      register: pull_result
+      changed_when: "'Downloaded newer image' in pull_result.stdout"
+
+    # Build and run Docker containers
+    - name: Build and run Docker containers
+      ansible.builtin.shell:
+        cmd: docker-compose pull && docker-compose up --build -d
+      args:
+        chdir: "{{ PATH }}"
+        warn: false
+      ignore_errors: true
+      register: output
+
+    # Debug output of the docker-compose command
+    - name: Debug docker-compose output
+      ansible.builtin.debug:
+        var: output
