@@ -2,8 +2,8 @@
 
 # VScode
 /.vscode/*
-puppet-agent
-
+build/.env
+.env
 # Mac Files
 .DS_Store
 
