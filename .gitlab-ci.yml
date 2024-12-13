@@ -1,17 +1,32 @@
 stages:
-  - build
-  - sonarqube-check
-  - sonarqube-vulnerability-report
-  - deploy-prod
+  - test # Stage for running tests
+  - build # Stage for building Docker images
+  - sonarqube-check # Stage for static code analysis
+  - sonarqube-vulnerability-report # Stage for generating vulnerability reports
+  - deploy-prod # Stage for deploying the application to production
 
 variables:
-  DOCKER_TLS_CERTDIR: "/certs"
-  
+  DOCKER_TLS_CERTDIR: "/certs" # Use Docker TLS for secure communication
+
+test:
+  stage: test
+  script:
+    - pip install -r requirements.txt  # Install project dependencies
+    - pip install pytest pytest-cov  # Install testing tools
+    - pytest --cov=app tests/ --cov-report=xml  # Run tests and generate coverage report
+  artifacts:
+    paths:
+      - coverage.xml  # Save coverage report as an artifact
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml  # Specify the path to the coverage file
+
 build:
   stage: build
   image: docker:latest
   services:
-    - docker:dind
+    - docker:dind # Use Docker-in-Docker for building images
   script:
     - cd build # Navigate to the build folder (e.g., flask_blog/build/)
     - ls -la # List files in the current directory for debugging
